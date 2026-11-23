@@ -334,4 +334,3 @@ class _NewSalePageState extends State<NewSalePage> {
     );
   }
 }
-}
