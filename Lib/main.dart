@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const FiaPayApp());
-}
+void main() => runApp(const FiaPayApp());
 
 class FiaPayApp extends StatelessWidget {
   const FiaPayApp({super.key});
@@ -13,9 +11,7 @@ class FiaPayApp extends StatelessWidget {
       title: 'FiaPay',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7541A5),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7541A5)),
         useMaterial3: true,
       ),
       home: const HomePage(),
@@ -23,39 +19,36 @@ class FiaPayApp extends StatelessWidget {
   }
 }
 
-class SaleItem {
-  final String product;
+class Product {
+  String name;
+  double price;
+  int stock;
+
+  Product({required this.name, required this.price, required this.stock});
+}
+
+class SaleLine {
+  final Product product;
   final int quantity;
-  final double price;
 
-  SaleItem({
-    required this.product,
-    required this.quantity,
-    required this.price,
-  });
-
-  double get total => quantity * price;
+  SaleLine(this.product, this.quantity);
 }
 
 class Sale {
   final String customer;
   final String seller;
-  final List<SaleItem> items;
-  final double discount;
-  final double fee;
   final String payment;
-  final String status;
+  final List<SaleLine> items;
   final double total;
+  final DateTime date;
 
   Sale({
     required this.customer,
     required this.seller,
-    required this.items,
-    required this.discount,
-    required this.fee,
     required this.payment,
-    required this.status,
+    required this.items,
     required this.total,
+    required this.date,
   });
 }
 
@@ -67,24 +60,181 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  final List<Product> products = [];
+  final List<String> customers = [];
+  final List<String> sellers = [];
   final List<Sale> sales = [];
+  final List<String> activityLog = [];
+
+  void log(String message) {
+    activityLog.insert(0, '${DateTime.now().toLocal()} — $message');
+  }
 
   String money(double value) => 'R\$ ${value.toStringAsFixed(2)}';
 
-  Future<void> openNewSale() async {
-    final sale = await Navigator.push<Sale>(
-      context,
-      MaterialPageRoute(builder: (_) => const NewSalePage()),
+  Future<void> addProduct() async {
+    final name = TextEditingController();
+    final price = TextEditingController();
+    final stock = TextEditingController(text: '0');
+
+    final result = await showDialog<Product>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cadastrar produto'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Nome')),
+            TextField(
+              controller: price,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Preço (R\$)'),
+            ),
+            TextField(
+              controller: stock,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Quantidade em estoque'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () {
+              final parsedPrice = double.tryParse(price.text.replaceAll(',', '.'));
+              final parsedStock = int.tryParse(stock.text);
+              if (name.text.trim().isEmpty || parsedPrice == null ||
+                  parsedPrice < 0 || parsedStock == null || parsedStock < 0) {
+                return;
+              }
+              Navigator.pop(
+                context,
+                Product(name: name.text.trim(), price: parsedPrice, stock: parsedStock),
+              );
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
     );
 
-    if (sale != null) {
-      setState(() => sales.insert(0, sale));
+    name.dispose();
+    price.dispose();
+    stock.dispose();
+
+    if (result != null) {
+      setState(() {
+        products.add(result);
+        log('Produto cadastrado: ${result.name}');
+      });
     }
+  }
+
+  Future<void> addPerson(String type) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Cadastrar $type'),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(labelText: 'Nome do $type'),
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(context, controller.text.trim());
+              }
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (name != null) {
+      setState(() {
+        (type == 'cliente' ? customers : sellers).add(name);
+        log('$type cadastrado: $name');
+      });
+    }
+  }
+
+  Future<void> newSale() async {
+    if (products.isEmpty || customers.isEmpty || sellers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cadastre pelo menos um produto, cliente e vendedor antes da venda.')),
+      );
+      return;
+    }
+
+    final sale = await Navigator.push<Sale>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NewSalePage(
+          products: products,
+          customers: customers,
+          sellers: sellers,
+        ),
+      ),
+    );
+
+    if (sale == null) return;
+
+    setState(() {
+      for (final line in sale.items) {
+        line.product.stock -= line.quantity;
+      }
+      sales.insert(0, sale);
+      log('Venda de ${money(sale.total)} concluída por ${sale.seller} para ${sale.customer}');
+    });
+  }
+
+  Widget menuButton(String title, IconData icon, VoidCallback onPressed) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon, color: const Color(0xFF7541A5)),
+        title: Text(title),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onPressed,
+      ),
+    );
+  }
+
+  void showList(String title, List<String> values) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SimpleListPage(title: title, values: values),
+      ),
+    );
+  }
+
+  void showProducts() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProductListPage(products: products, money: money),
+      ),
+    );
+  }
+
+  void showLog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SimpleListPage(title: 'Log do sistema', values: activityLog),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final totalSales = sales.fold<double>(0, (sum, sale) => sum + sale.total);
+    final total = sales.fold<double>(0, (sum, sale) => sum + sale.total);
 
     return Scaffold(
       appBar: AppBar(
@@ -95,417 +245,203 @@ class _HomePageState extends State<HomePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
-            'Resumo de vendas',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
           Card(
             child: ListTile(
-              title: const Text('Total registrado'),
+              title: const Text('Resumo de vendas'),
               subtitle: Text('${sales.length} venda(s)'),
-              trailing: Text(
-                money(totalSales),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+              trailing: Text(money(total), style: const TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           FilledButton.icon(
-            onPressed: openNewSale,
+            onPressed: newSale,
             icon: const Icon(Icons.add),
             label: const Text('Nova venda'),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF7541A5),
-              padding: const EdgeInsets.all(14),
-            ),
           ),
-          const SizedBox(height: 20),
-          const Text(
-            'Vendas recentes',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          if (sales.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 12),
-              child: Text('Nenhuma venda registrada ainda.'),
+          menuButton('Estoque e produtos', Icons.inventory_2, showProducts),
+          menuButton('Cadastrar produto', Icons.add_box, addProduct),
+          menuButton('Clientes', Icons.people, () => showList('Clientes', customers)),
+          menuButton('Cadastrar cliente', Icons.person_add, () => addPerson('cliente')),
+          menuButton('Vendedores', Icons.badge, () => showList('Vendedores', sellers)),
+          menuButton('Cadastrar vendedor', Icons.person_add_alt_1, () => addPerson('vendedor')),
+          menuButton('Log do sistema', Icons.history, showLog),
+          const SizedBox(height: 12),
+          const Text('Vendas recentes', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          if (sales.isEmpty) const Text('Nenhuma venda registrada.'),
+          ...sales.map((sale) => Card(
+            child: ListTile(
+              title: Text(money(sale.total)),
+              subtitle: Text('${sale.customer} • ${sale.seller} • ${sale.payment}'),
             ),
-          ...sales.map(
-            (sale) => Card(
-              child: ListTile(
-                title: Text('${sale.status} • ${money(sale.total)}'),
-                subtitle: Text(
-                  'Cliente: ${sale.customer}\n'
-                  'Vendedor: ${sale.seller} • ${sale.payment}',
-                ),
-                isThreeLine: true,
-              ),
-            ),
-          ),
+          )),
         ],
       ),
     );
   }
 }
 
-class ItemFields {
-  final TextEditingController product = TextEditingController();
-  final TextEditingController quantity =
-      TextEditingController(text: '1');
-  final TextEditingController price = TextEditingController();
+class SimpleListPage extends StatelessWidget {
+  final String title;
+  final List<String> values;
 
-  void dispose() {
-    product.dispose();
-    quantity.dispose();
-    price.dispose();
+  const SimpleListPage({super.key, required this.title, required this.values});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: values.isEmpty
+          ? const Center(child: Text('Nenhum cadastro ainda.'))
+          : ListView.builder(
+              itemCount: values.length,
+              itemBuilder: (_, index) => ListTile(title: Text(values[index])),
+            ),
+    );
+  }
+}
+
+class ProductListPage extends StatelessWidget {
+  final List<Product> products;
+  final String Function(double) money;
+
+  const ProductListPage({super.key, required this.products, required this.money});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Estoque e produtos')),
+      body: products.isEmpty
+          ? const Center(child: Text('Nenhum produto cadastrado.'))
+          : ListView.builder(
+              itemCount: products.length,
+              itemBuilder: (_, index) {
+                final product = products[index];
+                return ListTile(
+                  title: Text(product.name),
+                  subtitle: Text('Estoque: ${product.stock}'),
+                  trailing: Text(money(product.price)),
+                );
+              },
+            ),
+    );
   }
 }
 
 class NewSalePage extends StatefulWidget {
-  const NewSalePage({super.key});
+  final List<Product> products;
+  final List<String> customers;
+  final List<String> sellers;
+
+  const NewSalePage({
+    super.key,
+    required this.products,
+    required this.customers,
+    required this.sellers,
+  });
 
   @override
   State<NewSalePage> createState() => _NewSalePageState();
 }
 
 class _NewSalePageState extends State<NewSalePage> {
-  final formKey = GlobalKey<FormState>();
-  final customerController = TextEditingController();
-  final sellerController = TextEditingController();
-  final discountController = TextEditingController(text: '0');
-  final feeController = TextEditingController(text: '0');
-  final paidController = TextEditingController(text: '0');
-
-  final List<ItemFields> items = [ItemFields()];
+  String? customer;
+  String? seller;
   String payment = 'Pix';
+  final Map<Product, int> quantities = {};
 
-  double number(String value) =>
-      double.tryParse(value.replaceAll(',', '.')) ?? 0;
-
-  double get subtotal {
-    return items.fold<double>(0, (sum, item) {
-      return sum +
-          number(item.quantity.text) * number(item.price.text);
-    });
-  }
-
-  double get discountAmount {
-    return subtotal * number(discountController.text) / 100;
-  }
-
-  double get feeAmount {
-    return (subtotal - discountAmount) * number(feeController.text) / 100;
-  }
-
-  double get total => subtotal - discountAmount + feeAmount;
-
-  double get change {
-    final result = number(paidController.text) - total;
-    return result > 0 ? result : 0;
-  }
-
-  String? requiredField(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Preencha este campo';
-    }
-    return null;
-  }
-
-  String? validPositive(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Preencha este campo';
-    }
-    if (number(value) <= 0) return 'Informe um valor maior que zero';
-    return null;
-  }
-
-  String? validPercent(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Preencha este campo';
-    final result = number(value);
-    if (result < 0 || result > 100) {
-      return 'Use um valor entre 0 e 100';
-    }
-    return null;
-  }
-
-  void addItem() {
-    setState(() => items.add(ItemFields()));
-  }
-
-  void removeItem(int index) {
-    if (items.length == 1) return;
-    setState(() {
-      items[index].dispose();
-      items.removeAt(index);
-    });
-  }
-
-  void saveSale(String status) {
-    if (!formKey.currentState!.validate()) return;
-
-    final saleItems = items.map((item) {
-      return SaleItem(
-        product: item.product.text.trim(),
-        quantity: number(item.quantity.text).toInt(),
-        price: number(item.price.text),
+  double get total => quantities.entries.fold(
+        0,
+        (sum, entry) => sum + entry.key.price * entry.value,
       );
-    }).toList();
+
+  void finishSale() {
+    final selected = quantities.entries.where((entry) => entry.value > 0).toList();
+
+    if (customer == null || seller == null || selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escolha cliente, vendedor e pelo menos um produto.')),
+      );
+      return;
+    }
+
+    for (final entry in selected) {
+      if (entry.value > entry.key.stock) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Estoque insuficiente para ${entry.key.name}.')),
+        );
+        return;
+      }
+    }
 
     Navigator.pop(
       context,
       Sale(
-        customer: customerController.text.trim(),
-        seller: sellerController.text.trim(),
-        items: saleItems,
-        discount: discountAmount,
-        fee: feeAmount,
+        customer: customer!,
+        seller: seller!,
         payment: payment,
-        status: status,
+        items: selected.map((e) => SaleLine(e.key, e.value)).toList(),
         total: total,
+        date: DateTime.now(),
       ),
     );
-  }
-
-  Widget textField({
-    required String label,
-    required TextEditingController controller,
-    String? Function(String?)? validator,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        controller: controller,
-        validator: validator,
-        keyboardType: keyboardType,
-        onChanged: (_) => setState(() {}),
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
-      ),
-    );
-  }
-
-  Widget sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    customerController.dispose();
-    sellerController.dispose();
-    discountController.dispose();
-    feeController.dispose();
-    paidController.dispose();
-    for (final item in items) {
-      item.dispose();
-    }
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nova venda'),
-        backgroundColor: const Color(0xFF7541A5),
-        foregroundColor: Colors.white,
-      ),
-      body: Form(
-        key: formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            sectionTitle('Cliente e vendedor'),
-            textField(
-              label: 'Nome do cliente',
-              controller: customerController,
-              validator: requiredField,
-            ),
-            textField(
-              label: 'Nome do vendedor',
-              controller: sellerController,
-              validator: requiredField,
-            ),
-            sectionTitle('Produtos'),
-            ...List.generate(items.length, (index) {
-              final item = items[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Produto ${index + 1}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: items.length > 1
-                                ? () => removeItem(index)
-                                : null,
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
-                      ),
-                      textField(
-                        label: 'Nome do produto',
-                        controller: item.product,
-                        validator: requiredField,
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: textField(
-                              label: 'Quantidade',
-                              controller: item.quantity,
-                              keyboardType: TextInputType.number,
-                              validator: validPositive,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: textField(
-                              label: 'Preço unitário (R\$)',
-                              controller: item.price,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                              validator: validPositive,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-            OutlinedButton.icon(
-              onPressed: addItem,
-              icon: const Icon(Icons.add),
-              label: const Text('Adicionar produto'),
-            ),
-            sectionTitle('Desconto e taxa'),
-            Row(
-              children: [
-                Expanded(
-                  child: textField(
-                    label: 'Desconto (%)',
-                    controller: discountController,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    validator: validPercent,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: textField(
-                    label: 'Taxa (%)',
-                    controller: feeController,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    validator: validPercent,
-                  ),
-                ),
-              ],
-            ),
-            sectionTitle('Pagamento'),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: DropdownButtonFormField<String>(
-                value: payment,
-                decoration: const InputDecoration(
-                  labelText: 'Forma de pagamento',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Pix', child: Text('Pix')),
-                  DropdownMenuItem(
-                    value: 'Dinheiro',
-                    child: Text('Dinheiro'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'Cartão de crédito',
-                    child: Text('Cartão de crédito'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'Cartão de débito',
-                    child: Text('Cartão de débito'),
-                  ),
-                  DropdownMenuItem(value: 'Pendente', child: Text('Pendente')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setState(() => payment = value);
-                },
-              ),
-            ),
-            textField(
-              label: 'Valor recebido (R\$)',
-              controller: paidController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Preencha este campo';
-                }
-                if (number(value) < 0) return 'O valor não pode ser negativo';
-                return null;
-              },
-            ),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Subtotal: R\$ ${subtotal.toStringAsFixed(2)}'),
-                    Text(
-                      'Desconto: R\$ ${discountAmount.toStringAsFixed(2)}',
+      appBar: AppBar(title: const Text('Nova venda')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          DropdownButtonFormField<String>(
+            value: customer,
+            decoration: const InputDecoration(labelText: 'Cliente'),
+            items: widget.customers.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+            onChanged: (value) => setState(() => customer = value),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: seller,
+            decoration: const InputDecoration(labelText: 'Vendedor'),
+            items: widget.sellers.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+            onChanged: (value) => setState(() => seller = value),
+          ),
+          const SizedBox(height: 20),
+          const Text('Produtos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ...widget.products.map((product) => Card(
+                child: ListTile(
+                  title: Text(product.name),
+                  subtitle: Text('Estoque: ${product.stock} • R\$ ${product.price.toStringAsFixed(2)}'),
+                  trailing: SizedBox(
+                    width: 80,
+                    child: TextFormField(
+                      initialValue: '0',
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Qtd.'),
+                      onChanged: (value) {
+                        quantities[product] = int.tryParse(value) ?? 0;
+                        setState(() {});
+                      },
                     ),
-                    Text('Taxa: R\$ ${feeAmount.toStringAsFixed(2)}'),
-                    const Divider(),
-                    Text(
-                      'Total: R\$ ${total.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text('Troco: R\$ ${change.toStringAsFixed(2)}'),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: () => saveSale('Rascunho'),
-              child: const Text('Salvar como rascunho'),
-            ),
-            const SizedBox(height: 8),
-            FilledButton(
-              onPressed: () => saveSale('Concluída'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7541A5),
-                padding: const EdgeInsets.all(14),
-              ),
-              child: const Text('Concluir venda'),
-            ),
-          ],
-        ),
+              )),
+          DropdownButtonFormField<String>(
+            value: payment,
+            decoration: const InputDecoration(labelText: 'Forma de pagamento'),
+            items: const ['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de débito', 'Pendente']
+                .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => payment = value);
+            },
+          ),
+          const SizedBox(height: 16),
+          Text('Total: R\$ ${total.toStringAsFixed(2)}',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: finishSale, child: const Text('Concluir venda')),
+        ],
       ),
     );
   }
