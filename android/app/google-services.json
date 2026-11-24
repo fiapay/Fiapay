@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "394214293743",
+    "project_id": "fiapay",
+    "storage_bucket": "fiapay.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:394214293743:android:3a8bc7f5245b0e06779b1a",
+        "android_client_info": {
+          "package_name": "com.fiapay.fiapay"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBY4_gS41wd7saQm5FImfQ-xB-KAimihgg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
